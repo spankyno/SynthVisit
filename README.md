@@ -1,7 +1,7 @@
 # SynthVisit — Generador de Tráfico Sintético y Emulación de Interacción
 
 SynthVisit es una solución profesional para propietarios de propiedades verificadas en Google Search Console para probar el rendimiento, la interacción y el comportamiento de tráfico orgánico simulado.
-
+ 
 ---
 
 ## 🚀 Despliegue en Producción
