@@ -1,0 +1,6 @@
+{
+  "name": "SynthVisit",
+  "description": "Generador de tráfico sintético controlado con simulación de comportamiento humano, rotación de proxies y monitorización en tiempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
