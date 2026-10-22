@@ -51,6 +51,9 @@ export default function App() {
   const [scrollMode, setScrollMode] = useState<'scroll_only' | 'scroll_clicks'>('scroll_clicks');
   const [dryRun, setDryRun] = useState(false);
   const [scheduledTime, setScheduledTime] = useState('');
+  const [openRealTab, setOpenRealTab] = useState(true);
+  const [customBackendUrl, setCustomBackendUrl] = useState('');
+  const [showBackendConfig, setShowBackendConfig] = useState(false);
 
   // Data States
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -87,6 +90,7 @@ export default function App() {
 
   const loadData = async () => {
     try {
+      setCustomBackendUrl(trafficService.getBackendBaseUrl());
       const hasApi = await trafficService.checkBackendAvailability();
       setIsBackendConnected(hasApi);
 
@@ -187,7 +191,8 @@ export default function App() {
         useTor,
         scrollMode,
         dryRun,
-        scheduledTime: scheduledTime || undefined
+        scheduledTime: scheduledTime || undefined,
+        openRealTab: openRealTab
       });
 
       if (res.success) {
@@ -323,30 +328,28 @@ export default function App() {
           </div>
 
           {/* Mode Indicator Badge */}
-          <div
-            className={`flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${
+          <button
+            type="button"
+            onClick={() => setShowBackendConfig(true)}
+            className={`flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all cursor-pointer hover:opacity-80 ${
               isBackendConnected
                 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                 : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
             }`}
-            title={
-              isBackendConnected
-                ? 'Conectado a servidor Node.js backend con soporte Playwright'
-                : 'Operando en Modo Autónomo Edge (Optimizado para Vercel y Cloudflare)'
-            }
+            title="Haz clic para configurar la URL del Servidor Playwright"
           >
             {isBackendConnected ? (
               <>
                 <Server className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Backend Node.js</span>
+                <span>Backend Playwright</span>
               </>
             ) : (
               <>
                 <Cloud className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Modo Edge / Cloud</span>
+                <span>Modo Cloud / Edge</span>
               </>
             )}
-          </div>
+          </button>
         </div>
 
         {/* Navigation Tabs */}
@@ -561,6 +564,31 @@ export default function App() {
                       <span className="text-xs text-amber-300">Simulación Dry-Run</span>
                     </label>
                   </div>
+
+                  {/* Real Browser Visits Mode (for Client/Edge mode) */}
+                  {!isBackendConnected && !dryRun && (
+                    <div className="p-3.5 bg-indigo-950/40 border border-indigo-500/30 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center space-x-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={openRealTab}
+                            onChange={(e) => setOpenRealTab(e.target.checked)}
+                            className="w-4 h-4 rounded bg-slate-950 border-slate-800 text-indigo-500 focus:ring-indigo-500"
+                          />
+                          <span className="text-xs font-semibold text-indigo-200">
+                            Visitas Reales en Navegador (Abre ventana auxiliar)
+                          </span>
+                        </label>
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                          Necesario para Analytics
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Abre temporalmente cada URL en una ventana auxiliar durante los segundos configurados para que el navegador descargue y ejecute los scripts de la página (imprescindible para que <strong>Aitor's Analytics</strong> o Google Analytics registren las visitas). Asegúrate de <strong>permitir ventanas emergentes (popups)</strong> en este sitio.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="pt-4 flex justify-end">
                     <button
@@ -913,6 +941,70 @@ export default function App() {
                 <p className="text-xs text-slate-400">
                   Todas las campañas se auditan con fecha, duración exacta por visita, proxies utilizados y secuencia de acciones. Los informes pueden descargarse al instante en JSON o CSV estructurado.
                 </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Backend Configuration Modal */}
+        {showBackendConfig && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center space-x-2">
+                  <Server className="w-5 h-5 text-indigo-400" />
+                  <h3 className="font-semibold text-white">Configurar Servidor Backend Playwright</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBackendConfig(false)}
+                  className="text-slate-400 hover:text-white text-lg font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Si has desplegado el backend completo de Node.js + Playwright en un servidor (como Render, Railway, Fly.io o VPS), introduce su URL aquí. Si lo dejas vacío, SynthVisit funcionará en <strong>Modo Cloud / Edge</strong> directamente desde tu navegador.
+              </p>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">URL del Servidor Backend</label>
+                <input
+                  type="text"
+                  placeholder="https://tu-backend.onrender.com o http://localhost:3000"
+                  value={customBackendUrl}
+                  onChange={(e) => setCustomBackendUrl(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    trafficService.setBackendBaseUrl('');
+                    setCustomBackendUrl('');
+                    setShowBackendConfig(false);
+                    loadData();
+                    showToast('Modo Cloud / Edge restablecido.', 'info');
+                  }}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  Restablecer a Local
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    trafficService.setBackendBaseUrl(customBackendUrl);
+                    setShowBackendConfig(false);
+                    loadData();
+                    showToast('Configuración de backend actualizada.', 'success');
+                  }}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  Guardar y Probar Conexión
+                </button>
               </div>
             </div>
           </div>

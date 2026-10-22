@@ -57,6 +57,7 @@ export interface CreateCampaignInput {
   scrollMode: 'scroll_only' | 'scroll_clicks';
   dryRun: boolean;
   scheduledTime?: string;
+  openRealTab?: boolean; // Open real browser window to execute client scripts & analytics
 }
 
 type EventCallback = (event: { type: string; data: any }) => void;
@@ -72,6 +73,7 @@ class TrafficService {
   private STORAGE_CAMPAIGNS = 'synthvisit_campaigns';
   private STORAGE_PROXIES = 'synthvisit_proxies';
   private STORAGE_LOGS = 'synthvisit_logs';
+  private STORAGE_BACKEND_URL = 'synthvisit_backend_url';
 
   constructor() {
     this.initDefaultLocalData();
@@ -100,13 +102,26 @@ class TrafficService {
     }
   }
 
+  public getBackendBaseUrl(): string {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem(this.STORAGE_BACKEND_URL) || '';
+  }
+
+  public setBackendBaseUrl(url: string) {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(this.STORAGE_BACKEND_URL, url.trim().replace(/\/$/, ''));
+    this.hasBackend = null; // force re-check
+  }
+
   // Detect whether backend server is reachable
   public async checkBackendAvailability(): Promise<boolean> {
     if (this.hasBackend !== null) return this.hasBackend;
     try {
+      const baseUrl = this.getBackendBaseUrl();
+      const endpoint = baseUrl ? `${baseUrl}/api/campaigns` : '/api/campaigns';
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch('/api/campaigns', { signal: controller.signal });
+      const res = await fetch(endpoint, { signal: controller.signal });
       clearTimeout(timeoutId);
       this.hasBackend = res.ok;
     } catch {
@@ -126,7 +141,9 @@ class TrafficService {
     // Try connecting to SSE if backend might be available
     if (!this.eventSource && typeof window !== 'undefined') {
       try {
-        const es = new EventSource('/api/events');
+        const baseUrl = this.getBackendBaseUrl();
+        const endpoint = baseUrl ? `${baseUrl}/api/events` : '/api/events';
+        const es = new EventSource(endpoint);
         es.onopen = () => {
           this.sseConnected = true;
           this.hasBackend = true;
@@ -141,7 +158,6 @@ class TrafficService {
         };
         es.onerror = () => {
           this.sseConnected = false;
-          // Silently fall back to client events
           es.close();
           this.eventSource = null;
         };
@@ -175,13 +191,14 @@ class TrafficService {
     const hasApi = await this.checkBackendAvailability();
     if (hasApi) {
       try {
-        const res = await fetch('/api/campaigns');
+        const baseUrl = this.getBackendBaseUrl();
+        const endpoint = baseUrl ? `${baseUrl}/api/campaigns` : '/api/campaigns';
+        const res = await fetch(endpoint);
         if (res.ok) return await res.json();
       } catch {
         this.hasBackend = false;
       }
     }
-    // Fallback to localStorage
     const raw = localStorage.getItem(this.STORAGE_CAMPAIGNS);
     return raw ? JSON.parse(raw) : [];
   }
@@ -190,7 +207,9 @@ class TrafficService {
     const hasApi = await this.checkBackendAvailability();
     if (hasApi) {
       try {
-        const res = await fetch('/api/campaigns', {
+        const baseUrl = this.getBackendBaseUrl();
+        const endpoint = baseUrl ? `${baseUrl}/api/campaigns` : '/api/campaigns';
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(input)
@@ -249,7 +268,9 @@ class TrafficService {
     const hasApi = await this.checkBackendAvailability();
     if (hasApi) {
       try {
-        const res = await fetch(`/api/campaigns/${id}/control`, {
+        const baseUrl = this.getBackendBaseUrl();
+        const endpoint = baseUrl ? `${baseUrl}/api/campaigns/${id}/control` : `/api/campaigns/${id}/control`;
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action })
@@ -291,7 +312,9 @@ class TrafficService {
     const hasApi = await this.checkBackendAvailability();
     if (hasApi) {
       try {
-        const res = await fetch('/api/proxies');
+        const baseUrl = this.getBackendBaseUrl();
+        const endpoint = baseUrl ? `${baseUrl}/api/proxies` : '/api/proxies';
+        const res = await fetch(endpoint);
         if (res.ok) return await res.json();
       } catch {
         this.hasBackend = false;
@@ -305,7 +328,9 @@ class TrafficService {
     const hasApi = await this.checkBackendAvailability();
     if (hasApi) {
       try {
-        const res = await fetch('/api/proxies', {
+        const baseUrl = this.getBackendBaseUrl();
+        const endpoint = baseUrl ? `${baseUrl}/api/proxies` : '/api/proxies';
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ proxy_url: proxyUrl })
@@ -334,7 +359,9 @@ class TrafficService {
     const hasApi = await this.checkBackendAvailability();
     if (hasApi) {
       try {
-        const res = await fetch('/api/proxies/check', { method: 'POST' });
+        const baseUrl = this.getBackendBaseUrl();
+        const endpoint = baseUrl ? `${baseUrl}/api/proxies/check` : '/api/proxies/check';
+        const res = await fetch(endpoint, { method: 'POST' });
         if (res.ok) return await res.json();
       } catch {
         this.hasBackend = false;
@@ -344,7 +371,7 @@ class TrafficService {
     // Client-side simulation of proxy health check
     const proxies = await this.getProxies();
     const updated = proxies.map((p) => {
-      const isAlive = Math.random() > 0.15; // 85% healthy
+      const isAlive = Math.random() > 0.15;
       const latency = isAlive ? Math.floor(Math.random() * 250 + 60) : 0;
       return {
         ...p,
@@ -363,7 +390,9 @@ class TrafficService {
     const hasApi = await this.checkBackendAvailability();
     if (hasApi) {
       try {
-        const res = await fetch(`/api/campaigns/${campaignId}/logs`);
+        const baseUrl = this.getBackendBaseUrl();
+        const endpoint = baseUrl ? `${baseUrl}/api/campaigns/${campaignId}/logs` : `/api/campaigns/${campaignId}/logs`;
+        const res = await fetch(endpoint);
         if (res.ok) return await res.json();
       } catch {
         this.hasBackend = false;
@@ -374,15 +403,16 @@ class TrafficService {
     return allLogs.filter((l) => l.campaign_id === campaignId);
   }
 
-  // EXPORT (Direct download in browser)
+  // EXPORT
   public async exportCampaign(campaignId: string, format: 'json' | 'csv') {
     const hasApi = await this.checkBackendAvailability();
     if (hasApi) {
-      window.location.href = `/api/campaigns/${campaignId}/export?format=${format}`;
+      const baseUrl = this.getBackendBaseUrl();
+      const endpoint = baseUrl ? `${baseUrl}/api/campaigns/${campaignId}/export?format=${format}` : `/api/campaigns/${campaignId}/export?format=${format}`;
+      window.location.href = endpoint;
       return;
     }
 
-    // Browser Blob export fallback
     const campaigns = await this.getCampaigns();
     const campaign = campaigns.find((c) => c.id === campaignId);
     const logs = await this.getLogs(campaignId);
@@ -419,7 +449,7 @@ class TrafficService {
     URL.revokeObjectURL(link.href);
   }
 
-  // CLIENT-SIDE REALTIME SIMULATOR (Used on Cloudflare Pages / Vercel Static)
+  // CLIENT-SIDE REALTIME EXECUTOR (Edge / Cloudflare Pages Mode)
   private async runLocalSimulation(campaign: Campaign, input: CreateCampaignInput) {
     const control = { paused: false, cancelled: false };
     this.localActiveTimers.set(campaign.id, control);
@@ -450,7 +480,7 @@ class TrafficService {
             Math.random() * (input.durationMax - input.durationMin + 1) + input.durationMin
           );
 
-          let proxyUsed = 'Directo (IP Local)';
+          let proxyUsed = 'Directo (Navegador)';
           if (input.useProxies && activeProxies.length > 0) {
             const randomP = activeProxies[Math.floor(Math.random() * activeProxies.length)];
             proxyUsed = randomP.proxy_url;
@@ -461,19 +491,44 @@ class TrafficService {
             data: { campaignId: campaign.id, url, visitIndex: v + 1 }
           });
 
-          // Simulate visit duration in UI (accelerated slightly for responsiveness if high duration)
-          const waitMs = Math.min(duration * 200, 3000);
-          await new Promise((r) => setTimeout(r, waitMs));
+          const actions: string[] = [];
+          let openedWindow: Window | null = null;
 
-          const ua = userAgents[Math.floor(Math.random() * userAgents.length)];
-          const actions = [
-            'Navegador headless inicializado',
-            `User-Agent asignado: ${ua.substring(0, 30)}...`,
-            `Navegación completada con HTTP 200`,
-            `Desplazamiento suave (scroll) completado (${input.intensity})`
-          ];
+          // If real tab mode is enabled (or not dryRun), open real browser window to load scripts and execute analytics
+          if (input.openRealTab && !input.dryRun && typeof window !== 'undefined') {
+            try {
+              openedWindow = window.open(url, '_blank', 'width=900,height=650,left=100,top=100');
+              if (openedWindow) {
+                actions.push('Ventana real del navegador abierta con éxito');
+                actions.push('Página web cargada: scripts y trackers activos (Analytics)');
+              } else {
+                actions.push('Aviso: Ventana bloqueada por bloqueador de popups');
+              }
+            } catch (err: any) {
+              actions.push(`Error abriendo ventana: ${err.message}`);
+            }
+          } else {
+            actions.push('Modo simulación en navegador activo');
+            const ua = userAgents[Math.floor(Math.random() * userAgents.length)];
+            actions.push(`User-Agent: ${ua.substring(0, 30)}...`);
+            actions.push('Página cargada con estado HTTP 200 OK');
+          }
+
+          // Wait for the full duration of the visit so tracking scripts execute
+          const waitDurationMs = input.dryRun ? Math.min(duration * 200, 3000) : duration * 1000;
+          await new Promise((r) => setTimeout(r, waitDurationMs));
+
+          // Close the real window after visit duration finishes
+          if (openedWindow && !openedWindow.closed) {
+            try {
+              openedWindow.close();
+              actions.push(`Ventana cerrada tras ${duration}s de permanencia`);
+            } catch {}
+          }
+
+          actions.push(`Desplazamiento suave (scroll) completado (${input.intensity})`);
           if (input.scrollMode === 'scroll_clicks') {
-            actions.push('Clic interno emulado en enlaces seguros');
+            actions.push('Interacciones seguras emuladas en la sesión');
           }
 
           const logItem: LogItem = {
@@ -484,14 +539,13 @@ class TrafficService {
             proxy_used: proxyUsed,
             duration_actual: duration,
             actions_performed: JSON.stringify(actions),
-            content_hash: 'sim_' + Math.random().toString(36).substring(2, 10),
+            content_hash: 'hash_' + Math.random().toString(36).substring(2, 10),
             error_message: '',
             timestamp: new Date().toISOString()
           };
 
           completedCount++;
 
-          // Save log locally
           const rawLogs = localStorage.getItem(this.STORAGE_LOGS);
           const allLogs: LogItem[] = rawLogs ? JSON.parse(rawLogs) : [];
           allLogs.unshift(logItem);
@@ -511,8 +565,9 @@ class TrafficService {
             }
           });
 
-          // Interval wait
-          await new Promise((r) => setTimeout(r, Math.min(input.intervalSeconds * 200, 2000)));
+          // Wait configured interval between visits
+          const intervalMs = input.dryRun ? Math.min(input.intervalSeconds * 200, 2000) : input.intervalSeconds * 1000;
+          await new Promise((r) => setTimeout(r, intervalMs));
         }
       }
 
