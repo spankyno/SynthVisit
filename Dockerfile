@@ -4,11 +4,11 @@ FROM mcr.microsoft.com/playwright:v1.50.0-jammy
 # Directorio de trabajo
 WORKDIR /app
 
-# Copiar archivos de dependencias
-COPY package.json ./
+# Copiar archivos de dependencias y configuración de npm
+COPY package.json .npmrc* ./
 
-# Instalar dependencias del proyecto
-RUN npm install
+# Instalar dependencias del proyecto evitando conflictos de peer dependencies
+RUN npm install --legacy-peer-deps
 
 # Copiar el resto del código
 COPY . .
