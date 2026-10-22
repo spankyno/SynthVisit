@@ -77,9 +77,12 @@ export async function executeVisit(options: VisitOptions): Promise<VisitResult> 
     const page = await context.newPage();
     actions.push('Contexto de navegador configurado');
 
-    // Navigate to target URL with timeout
-    await page.goto(options.url, { timeout: 30000, waitUntil: 'domcontentloaded' });
+    // Navigate to target URL with timeout and ensure all scripts load
+    await page.goto(options.url, { timeout: 30000, waitUntil: 'load' });
     actions.push(`Navegación completada hacia ${options.url}`);
+
+    // Wait briefly for async tracking scripts (Analytics, Beacons, GTM) to fire
+    await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
 
     // Generate content hash for integrity validation
     const html = await page.content();
