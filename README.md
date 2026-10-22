@@ -1,7 +1,7 @@
 # SynthVisit — Generador de Tráfico Sintético y Emulación de Interacción
 
 SynthVisit es una solución profesional para propietarios de propiedades verificadas en Google Search Console para probar el rendimiento, la interacción y el comportamiento de tráfico orgánico simulado.
- 
+
 ---
 
 ## 🚀 Despliegue en Producción
@@ -24,8 +24,7 @@ SynthVisit es una solución profesional para propietarios de propiedades verific
 3. En la configuración de compilación:
    - **Framework preset**: `Vite`
    - **Build command**: `npm run build`
-   - **Build output directory**: `dist`
-4. El archivo [public/_redirects](file:///C:/MyOfflineFolder/synthvisit/public/_redirects) gestionará automáticamente el enrutamiento de la aplicación (SPA).
+4. Cloudflare Pages y Cloudflare Workers Assets detectan y sirven automáticamente `index.html` para el enrutamiento de la SPA.
 5. Haz clic en **Save and Deploy**.
 
 ---
