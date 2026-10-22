@@ -74,6 +74,7 @@ class TrafficService {
   private STORAGE_PROXIES = 'synthvisit_proxies';
   private STORAGE_LOGS = 'synthvisit_logs';
   private STORAGE_BACKEND_URL = 'synthvisit_backend_url';
+  private STORAGE_AUTH_TOKEN = 'synthvisit_auth_token';
 
   constructor() {
     this.initDefaultLocalData();
@@ -113,21 +114,56 @@ class TrafficService {
     this.hasBackend = null; // force re-check
   }
 
+  public getAuthToken(): string {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem(this.STORAGE_AUTH_TOKEN) || '';
+  }
+
+  public setAuthToken(token: string) {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(this.STORAGE_AUTH_TOKEN, token.trim());
+  }
+
+  private getAuthHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const token = this.getAuthToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+  }
+
   // Detect whether backend server is reachable
   public async checkBackendAvailability(): Promise<boolean> {
     if (this.hasBackend !== null) return this.hasBackend;
     try {
       const baseUrl = this.getBackendBaseUrl();
-      const endpoint = baseUrl ? `${baseUrl}/api/campaigns` : '/api/campaigns';
+      const endpoint = baseUrl ? `${baseUrl}/api/health` : '/api/health';
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(endpoint, { signal: controller.signal });
+      const timeoutId = setTimeout(() => controller.abort(), 2500);
+      const res = await fetch(endpoint, {
+        headers: this.getAuthHeaders(),
+        signal: controller.signal
+      });
       clearTimeout(timeoutId);
       this.hasBackend = res.ok;
     } catch {
       this.hasBackend = false;
     }
     return this.hasBackend;
+  }
+
+  public async checkAuthStatus(): Promise<{ authRequired: boolean; authenticated: boolean }> {
+    const hasApi = await this.checkBackendAvailability();
+    if (!hasApi) return { authRequired: false, authenticated: true };
+
+    try {
+      const baseUrl = this.getBackendBaseUrl();
+      const endpoint = baseUrl ? `${baseUrl}/api/auth/status` : '/api/auth/status';
+      const res = await fetch(endpoint, { headers: this.getAuthHeaders() });
+      if (res.ok) return await res.json();
+    } catch {}
+    return { authRequired: false, authenticated: true };
   }
 
   public isUsingBackend(): boolean {
@@ -138,7 +174,6 @@ class TrafficService {
   public subscribeEvents(cb: EventCallback): () => void {
     this.eventListeners.add(cb);
 
-    // Try connecting to SSE if backend might be available
     if (!this.eventSource && typeof window !== 'undefined') {
       try {
         const baseUrl = this.getBackendBaseUrl();
@@ -193,7 +228,7 @@ class TrafficService {
       try {
         const baseUrl = this.getBackendBaseUrl();
         const endpoint = baseUrl ? `${baseUrl}/api/campaigns` : '/api/campaigns';
-        const res = await fetch(endpoint);
+        const res = await fetch(endpoint, { headers: this.getAuthHeaders() });
         if (res.ok) return await res.json();
       } catch {
         this.hasBackend = false;
@@ -203,7 +238,7 @@ class TrafficService {
     return raw ? JSON.parse(raw) : [];
   }
 
-  public async createCampaign(input: CreateCampaignInput): Promise<{ success: boolean; campaignId: string; status: string }> {
+  public async createCampaign(input: CreateCampaignInput): Promise<{ success: boolean; campaignId: string; status: string; error?: string }> {
     const hasApi = await this.checkBackendAvailability();
     if (hasApi) {
       try {
@@ -211,13 +246,22 @@ class TrafficService {
         const endpoint = baseUrl ? `${baseUrl}/api/campaigns` : '/api/campaigns';
         const res = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this.getAuthHeaders(),
           body: JSON.stringify(input)
         });
+
+        if (res.status === 401) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Token de acceso no válido o ausente para el servidor Headless.');
+        }
+
         if (res.ok) {
           return await res.json();
         }
-      } catch {
+      } catch (e: any) {
+        if (e.message.includes('Token') || e.message.includes('Unauthorized')) {
+          throw e;
+        }
         this.hasBackend = false;
       }
     }
@@ -272,7 +316,7 @@ class TrafficService {
         const endpoint = baseUrl ? `${baseUrl}/api/campaigns/${id}/control` : `/api/campaigns/${id}/control`;
         const res = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this.getAuthHeaders(),
           body: JSON.stringify({ action })
         });
         if (res.ok) return await res.json();
@@ -281,7 +325,6 @@ class TrafficService {
       }
     }
 
-    // Local controller
     const ctrl = this.localActiveTimers.get(id);
     const campaigns = await this.getCampaigns();
     const idx = campaigns.findIndex((c) => c.id === id);
@@ -307,6 +350,38 @@ class TrafficService {
     return { success: true, action };
   }
 
+  public async deleteCampaign(id: string): Promise<{ success: boolean }> {
+    const hasApi = await this.checkBackendAvailability();
+    if (hasApi) {
+      try {
+        const baseUrl = this.getBackendBaseUrl();
+        const endpoint = baseUrl ? `${baseUrl}/api/campaigns/${id}` : `/api/campaigns/${id}`;
+        const res = await fetch(endpoint, {
+          method: 'DELETE',
+          headers: this.getAuthHeaders()
+        });
+        if (res.ok) return await res.json();
+      } catch {
+        this.hasBackend = false;
+      }
+    }
+
+    // Local deletion
+    const campaigns = await this.getCampaigns();
+    const filtered = campaigns.filter((c) => c.id !== id);
+    localStorage.setItem(this.STORAGE_CAMPAIGNS, JSON.stringify(filtered));
+
+    // Remove logs associated with this campaign
+    const rawLogs = localStorage.getItem(this.STORAGE_LOGS);
+    if (rawLogs) {
+      const allLogs: LogItem[] = JSON.parse(rawLogs);
+      const remainingLogs = allLogs.filter((l) => l.campaign_id !== id);
+      localStorage.setItem(this.STORAGE_LOGS, JSON.stringify(remainingLogs));
+    }
+
+    return { success: true };
+  }
+
   // PROXIES API
   public async getProxies(): Promise<ProxyItem[]> {
     const hasApi = await this.checkBackendAvailability();
@@ -314,7 +389,7 @@ class TrafficService {
       try {
         const baseUrl = this.getBackendBaseUrl();
         const endpoint = baseUrl ? `${baseUrl}/api/proxies` : '/api/proxies';
-        const res = await fetch(endpoint);
+        const res = await fetch(endpoint, { headers: this.getAuthHeaders() });
         if (res.ok) return await res.json();
       } catch {
         this.hasBackend = false;
@@ -332,7 +407,7 @@ class TrafficService {
         const endpoint = baseUrl ? `${baseUrl}/api/proxies` : '/api/proxies';
         const res = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this.getAuthHeaders(),
           body: JSON.stringify({ proxy_url: proxyUrl })
         });
         if (res.ok) return await res.json();
@@ -355,20 +430,44 @@ class TrafficService {
     return { success: true, id: newProxy.id };
   }
 
-  public async checkProxies(): Promise<{ success: boolean; results: ProxyItem[] }> {
+  public async deleteProxy(id: number): Promise<{ success: boolean }> {
     const hasApi = await this.checkBackendAvailability();
     if (hasApi) {
       try {
         const baseUrl = this.getBackendBaseUrl();
-        const endpoint = baseUrl ? `${baseUrl}/api/proxies/check` : '/api/proxies/check';
-        const res = await fetch(endpoint, { method: 'POST' });
+        const endpoint = baseUrl ? `${baseUrl}/api/proxies/${id}` : `/api/proxies/${id}`;
+        const res = await fetch(endpoint, {
+          method: 'DELETE',
+          headers: this.getAuthHeaders()
+        });
         if (res.ok) return await res.json();
       } catch {
         this.hasBackend = false;
       }
     }
 
-    // Client-side simulation of proxy health check
+    const proxies = await this.getProxies();
+    const filtered = proxies.filter((p) => p.id !== id);
+    localStorage.setItem(this.STORAGE_PROXIES, JSON.stringify(filtered));
+    return { success: true };
+  }
+
+  public async checkProxies(): Promise<{ success: boolean; results: ProxyItem[] }> {
+    const hasApi = await this.checkBackendAvailability();
+    if (hasApi) {
+      try {
+        const baseUrl = this.getBackendBaseUrl();
+        const endpoint = baseUrl ? `${baseUrl}/api/proxies/check` : '/api/proxies/check';
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: this.getAuthHeaders()
+        });
+        if (res.ok) return await res.json();
+      } catch {
+        this.hasBackend = false;
+      }
+    }
+
     const proxies = await this.getProxies();
     const updated = proxies.map((p) => {
       const isAlive = Math.random() > 0.15;
@@ -392,7 +491,7 @@ class TrafficService {
       try {
         const baseUrl = this.getBackendBaseUrl();
         const endpoint = baseUrl ? `${baseUrl}/api/campaigns/${campaignId}/logs` : `/api/campaigns/${campaignId}/logs`;
-        const res = await fetch(endpoint);
+        const res = await fetch(endpoint, { headers: this.getAuthHeaders() });
         if (res.ok) return await res.json();
       } catch {
         this.hasBackend = false;
@@ -494,7 +593,6 @@ class TrafficService {
           const actions: string[] = [];
           let openedWindow: Window | null = null;
 
-          // If real tab mode is enabled (or not dryRun), open real browser window to load scripts and execute analytics
           if (input.openRealTab && !input.dryRun && typeof window !== 'undefined') {
             try {
               openedWindow = window.open(url, '_blank', 'width=900,height=650,left=100,top=100');
@@ -514,11 +612,9 @@ class TrafficService {
             actions.push('Página cargada con estado HTTP 200 OK');
           }
 
-          // Wait for the full duration of the visit so tracking scripts execute
           const waitDurationMs = input.dryRun ? Math.min(duration * 200, 3000) : duration * 1000;
           await new Promise((r) => setTimeout(r, waitDurationMs));
 
-          // Close the real window after visit duration finishes
           if (openedWindow && !openedWindow.closed) {
             try {
               openedWindow.close();
@@ -565,13 +661,11 @@ class TrafficService {
             }
           });
 
-          // Wait configured interval between visits
           const intervalMs = input.dryRun ? Math.min(input.intervalSeconds * 200, 2000) : input.intervalSeconds * 1000;
           await new Promise((r) => setTimeout(r, intervalMs));
         }
       }
 
-      // Finish campaign
       const campaigns = await this.getCampaigns();
       const idx = campaigns.findIndex((c) => c.id === campaign.id);
       if (idx >= 0 && !control.cancelled) {

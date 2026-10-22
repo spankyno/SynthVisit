@@ -29,8 +29,25 @@ SynthVisit es una solución profesional para propietarios de propiedades verific
 
 ---
 
-### Opción C: Ejecución con Servidor Backend Completo (Node.js + Playwright)
-Si deseas ejecutar la automatización real de navegadores con Playwright headless (en un VPS, Docker, Railway, Render o en local):
+### Opción C: Despliegue del Backend Headless (Playwright) en Render
+Para ejecutar visitas reales en segundo plano sin abrir ventanas en tu ordenador:
+
+1. Ve a tu panel de [Render](https://dashboard.render.com).
+2. Haz clic en **New +** > **Web Service**.
+3. Conecta este repositorio de GitHub.
+4. En **Runtime**, selecciona **Docker** (Render detectará automáticamente el archivo [Dockerfile](file:///C:/MyOfflineFolder/synthvisit/Dockerfile)).
+5. En el plan, puedes elegir el plan **Free** o **Starter**.
+6. (Opcional) En **Environment Variables**, puedes configurar:
+   - `REQUIRE_AUTH`: `true` (si deseas proteger el servidor con clave).
+   - `HEADLESS_AUTH_KEY`: Tu clave secreta para autorizar usuarios.
+7. Haz clic en **Create Web Service**.
+8. Una vez desplegado, copia la URL que te asigna Render (ejemplo: `https://synthvisit-backend.onrender.com`).
+9. En tu frontend de Cloudflare Pages, haz clic en la insignia superior de **Modo**, introduce la URL de Render (y tu token si configuraste uno) y pulsa **Guardar y Probar Conexión**.
+
+---
+
+### Opción D: Ejecución Local o en VPS
+Si deseas ejecutarlo localmente o en un VPS tradicional:
 ```bash
 # 1. Instalar dependencias
 npm install

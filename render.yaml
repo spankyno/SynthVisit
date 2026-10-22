@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: synthvisit-backend
+    env: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REQUIRE_AUTH
+        value: "false"
+      - key: HEADLESS_AUTH_KEY
+        generateValue: true

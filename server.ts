@@ -9,13 +9,61 @@ import { startCampaign, pauseCampaign, resumeCampaign, cancelCampaign, addSseCli
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV !== 'production';
 
+// Optional Authentication configuration for Headless mode
+const HEADLESS_AUTH_KEY = process.env.HEADLESS_AUTH_KEY;
+const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
+
 async function startServer() {
   const app = express();
   app.use(express.json());
 
-  // Health check endpoint for containers / monitoring
+  // Enable CORS for cross-origin frontend (e.g. Cloudflare Pages connecting to Render backend)
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
+  // Authentication Middleware for protected Headless campaigns
+  const authenticate = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const isEnforced = REQUIRE_AUTH || Boolean(HEADLESS_AUTH_KEY);
+    if (!isEnforced) {
+      return next(); // Free access if auth is not configured
+    }
+
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
+    if (!token || (HEADLESS_AUTH_KEY && token !== HEADLESS_AUTH_KEY)) {
+      return res.status(401).json({
+        error: 'Unauthorized: Token de acceso no válido o ausente para el modo Headless.'
+      });
+    }
+    next();
+  };
+
+  // Health check endpoint for containers / Render monitoring
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+    res.json({
+      status: 'ok',
+      mode: 'headless-playwright',
+      authRequired: REQUIRE_AUTH || Boolean(HEADLESS_AUTH_KEY),
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Auth Status check endpoint
+  app.get('/api/auth/status', (req, res) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    const isEnforced = REQUIRE_AUTH || Boolean(HEADLESS_AUTH_KEY);
+    const isValid = !isEnforced || (HEADLESS_AUTH_KEY ? token === HEADLESS_AUTH_KEY : true);
+    res.json({ authRequired: isEnforced, authenticated: isValid });
   });
 
   // SSE endpoint for live logs and campaign status
@@ -65,6 +113,14 @@ async function startServer() {
     );
   });
 
+  app.delete('/api/proxies/:id', (req, res) => {
+    const { id } = req.params;
+    db.run(`DELETE FROM proxies WHERE id = ?`, [id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, id: Number(id) });
+    });
+  });
+
   // Campaign Routes
   app.get('/api/campaigns', (req, res) => {
     db.all(`SELECT * FROM campaigns ORDER BY created_at DESC`, (err, rows) => {
@@ -73,7 +129,7 @@ async function startServer() {
     });
   });
 
-  app.post('/api/campaigns', async (req, res) => {
+  app.post('/api/campaigns', authenticate, async (req, res) => {
     const {
       name,
       urls,
@@ -115,7 +171,6 @@ async function startServer() {
     };
 
     if (scheduledTime && new Date(scheduledTime).getTime() > Date.now()) {
-      // Scheduled campaign logic
       db.run(
         `INSERT INTO campaigns (id, name, urls, visits_per_url, duration_min, duration_max, interval_seconds, intensity, headless, use_proxies, use_tor, scroll_mode, dry_run, status, scheduled_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)`,
         [
@@ -137,7 +192,6 @@ async function startServer() {
         (err) => {
           if (err) return res.status(500).json({ error: err.message });
           const delay = new Date(scheduledTime).getTime() - Date.now();
-          // Guard against delay overflow
           if (delay < 2147483647) {
             setTimeout(() => {
               startCampaign(config);
@@ -147,7 +201,6 @@ async function startServer() {
         }
       );
     } else {
-      // Start immediately
       startCampaign(config);
       res.json({ success: true, campaignId, status: 'running' });
     }
@@ -155,7 +208,7 @@ async function startServer() {
 
   app.post('/api/campaigns/:id/control', (req, res) => {
     const { id } = req.params;
-    const { action } = req.body; // pause, resume, cancel
+    const { action } = req.body;
 
     if (action === 'pause') {
       pauseCampaign(id);
@@ -168,6 +221,14 @@ async function startServer() {
     }
 
     res.json({ success: true, action });
+  });
+
+  app.delete('/api/campaigns/:id', (req, res) => {
+    const { id } = req.params;
+    db.run(`DELETE FROM campaigns WHERE id = ?`, [id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, id });
+    });
   });
 
   app.get('/api/campaigns/:id/logs', (req, res) => {

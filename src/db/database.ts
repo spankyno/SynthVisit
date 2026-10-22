@@ -210,6 +210,21 @@ export const db = {
           invokeCallback(0, 1);
           return;
         }
+      } else if (cleanSql.startsWith('DELETE')) {
+        if (cleanSql.includes('FROM CAMPAIGNS')) {
+          const id = params[0];
+          dbData.campaigns = dbData.campaigns.filter((c) => c.id !== id);
+          dbData.visit_logs = dbData.visit_logs.filter((l) => l.campaign_id !== id);
+          saveDb();
+          invokeCallback(0, 1);
+          return;
+        } else if (cleanSql.includes('FROM PROXIES')) {
+          const id = Number(params[0]);
+          dbData.proxies = dbData.proxies.filter((p) => p.id !== id);
+          saveDb();
+          invokeCallback(0, 1);
+          return;
+        }
       }
 
       invokeCallback(0, 1);
